@@ -190,6 +190,29 @@ Set `strategy` in `[dataset]` to control how negatives are sampled:
 - **`random`** — uniformly sampled easy negatives.
 - **`mixed`** — a weighted blend (configure `[dataset.mix]`).
 
+## Synthetic hard negatives — adapted from *SynCo* ([arXiv:2410.02401](https://arxiv.org/abs/2410.02401))
+
+Beyond the mined negatives, the trainer can synthesize *harder* negatives
+directly in embedding space, following SynCo's idea of generating synthetic
+hard negatives on the representation space. Each batch's own mined negatives
+act as the candidate pool: for every anchor the pool is ranked by similarity,
+the hardest few are kept, and a new negative is generated and fed to the
+triplet loss when it is harder than the mined one. Disabled by default; enable
+it on `TrainingConfig`:
+
+```python
+from linear_adapter_trainer.adapter.synthetic_negatives import SyntheticNegativeConfig
+
+TrainingConfig(
+    synthetic_negatives=SyntheticNegativeConfig(enabled=True, strategy="mix_anchor"),
+)
+```
+
+Strategies: `interpolate` (convex mix of the hardest negatives), `extrapolate`
+(hardest negative pushed off the pool centroid), and `mix_anchor` (hardest
+negative blended toward the anchor). Synthesis stays query-side and never
+touches the corpus embeddings.
+
 ## Project layout
 
 ```
