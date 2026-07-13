@@ -32,6 +32,7 @@ from .data import (
 )
 from .losses import TripletLoss
 from .model import AdapterConfig, LinearAdapter
+from .synthetic_negatives import SyntheticNegativeConfig, augment_hard_negatives
 
 
 @dataclass(slots=True)
@@ -53,6 +54,8 @@ class TrainingConfig:
         grad_clip: Optional gradient-norm clip value.
         device: Torch device (``cpu``/``cuda``/``mps``); auto-detected if None.
         seed: Seed for reproducible training.
+        synthetic_negatives: Synthetic hard-negative generation (disabled by
+            default); see :class:`SyntheticNegativeConfig`.
     """
 
     epochs: int = 20
@@ -69,6 +72,7 @@ class TrainingConfig:
     grad_clip: float | None = 1.0
     device: str | None = None
     seed: int = 0
+    synthetic_negatives: SyntheticNegativeConfig = field(default_factory=SyntheticNegativeConfig)
 
 
 @dataclass(slots=True)
@@ -113,6 +117,9 @@ class AdapterTrainer:
         cfg = self.config
         torch.manual_seed(cfg.seed)
         np.random.seed(cfg.seed)
+        # Dedicated CPU generator so synthetic-negative sampling stays
+        # reproducible without perturbing the global RNG stream.
+        self._syn_generator = torch.Generator().manual_seed(cfg.seed)
 
         if not dataset.train:
             raise ValueError("Training split is empty; generate a larger dataset.")
@@ -199,6 +206,14 @@ class AdapterTrainer:
 
             optimizer.zero_grad()
             adapted = adapter(anchor)
+            # Harden the mined negatives with SynCo-style synthetic negatives
+            # drawn from the in-batch pool, ranked against the adapted anchor.
+            negative = augment_hard_negatives(
+                adapted.detach(),
+                negative,
+                config=self.config.synthetic_negatives,
+                generator=self._syn_generator,
+            )
             loss = criterion(adapted, positive, negative)
             loss.backward()
             if self.config.grad_clip:
